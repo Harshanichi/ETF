@@ -1,0 +1,83 @@
+import streamlit as st
+import mysql.connector as sql
+from mysql.connector import Error
+import pandas as pd
+from datetime import date as dt
+import plotly.express as px
+from graph import plot_Graph
+
+details_df = None  # Initialize as None or use pd.DataFrame()
+summary_df = []
+
+try:
+    mydb = sql.connect(
+        host="192.168.1.92",
+        user="remotehost",
+        password="Remote@123"
+    )
+except Error as e:
+    st.error(f"Error connecting to the database: {e}")
+    mydb = None
+
+if mydb:   
+    st.title('ETF')
+    date = st.date_input('Please select Date', value=None)
+    today = dt.today()
+    
+    if date and date <= today:
+        formatted_date = int(date.strftime('%Y%m%d'))
+
+        cursor = mydb.cursor()
+        cursor.execute('USE jpx;')
+
+        query = 'SELECT etf_code FROM tsepcfsummary WHERE dt=%s'
+        cursor.execute(query, (formatted_date,))
+        etf_codes = cursor.fetchall()
+        code_list = [code[0] for code in etf_codes]
+
+        selected_code = st.selectbox('Select a code', code_list, None)
+
+        load = st.button("Load", type="primary")
+        tab1, tab2, graph = st.tabs(['Summary', 'Details', 'Graph'])
+        
+        if load:
+            with st.spinner('Loading data...'):
+                with tab2:
+                    query1 = 'SELECT * FROM tsepcfdetail WHERE etf_code=%s'
+                    cursor.execute(query1, (selected_code,))
+                    details = cursor.fetchall()
+                    headers = [i[0] for i in cursor.description]
+
+                    if details:
+                        st.title(f'Details for {selected_code}:')
+                        df = pd.DataFrame(details, columns=headers)
+                        df['dt'] = df['dt']
+                        df = df.drop(['etf_code', 'update_source', 'update_time'], axis=1)
+                        details_df = df  # Assign DataFrame to details_df
+                        st.dataframe(details_df, hide_index=True)
+                    else:
+                        st.write('No data found for the selected ETF code and date.')
+
+                with tab1:
+                    query2 = 'SELECT * FROM tsepcfsummary WHERE etf_code=%s'
+                    cursor.execute(query2, (selected_code,))
+                    summary = cursor.fetchall()
+                    headers = [i[0] for i in cursor.description]
+
+                    if summary:
+                        st.title(f'Summary for {selected_code}:')
+                        df_summary = pd.DataFrame(summary, columns=headers)
+                        df_summary['dt'] = df_summary['dt'].astype(str)
+                        df_summary = df_summary.drop(['update_source', 'update_time'], axis=1)
+                        summary_df = df_summary
+                        st.dataframe(summary_df, hide_index=True)
+                    else:
+                        st.write('No data found for the selected ETF code and date.')
+
+            with graph:
+                if details_df is not None:
+                    plot_Graph(details_df)
+    else:
+        st.write('Please select a valid Date.')
+
+
